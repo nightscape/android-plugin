@@ -2,9 +2,9 @@ name := "sbt-android"
 
 organization := "org.scala-sbt"
 
-version := "0.7.1-SNAPSHOT"
+version := "0.7.2-SNAPSHOT"
 
-scalacOptions ++= Seq("-unchecked", "-deprecation", "-Xcheckinit", "-Xfatal-warnings")
+scalacOptions ++= Seq("-unchecked", "-deprecation", "-Xcheckinit")//, "-Xfatal-warnings","-feature")
 
 publishMavenStyle := false
 
@@ -17,11 +17,11 @@ publishTo <<= (version) { version: String =>
     Some(Resolver.url(name, new URL(url))(Resolver.ivyStylePatterns))
 }
 
-credentials += Credentials(Path.userHome / ".ivy2" / ".credentials")
+//credentials += Credentials(Path.userHome / ".ivy2" / ".credentials")
 
 libraryDependencies ++= Seq(
-  "com.google.android.tools" % "ddmlib" % "r10",
-  "net.sf.proguard" % "proguard-base" % "4.8"
+  "com.google.android.tools" % "ddmlib" % "r13",
+  "net.sf.proguard" % "proguard-base" % "4.10"
 )
 
 sbtPlugin := true

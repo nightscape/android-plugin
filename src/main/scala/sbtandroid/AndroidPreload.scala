@@ -1,12 +1,39 @@
 package sbtandroid
 
-import sbt._
-import Keys._
-import AndroidPlugin._
-import AndroidHelpers._
-
+import scala.xml.Elem
+import scala.xml.XML
 import scala.xml._
-import scala.xml.transform._
+import scala.xml.transform.RewriteRule
+import AndroidPlugin.dbPath
+import AndroidPlugin.dxPath
+import AndroidPlugin.manifestRewriteRules
+import AndroidPlugin.preloadDevice
+import AndroidPlugin.preloadEmulator
+import AndroidPlugin.preloadFilters
+import AndroidPlugin.sdkPath
+import AndroidPlugin.toolsPath
+import AndroidPlugin.usePreloaded
+import sbt.Attributed
+import sbt.File
+import sbt.InputTask
+import sbt.Keys.TaskStreams
+import sbt.Keys.managedClasspath
+import sbt.Keys.moduleID
+import sbt.Keys.streams
+import sbt.Keys.target
+import sbt.Keys.unmanagedClasspath
+import sbt.Path
+import sbt.Scoped.t10ToTable10
+import sbt.Scoped.t2ToTable2
+import sbt.Scoped.t4ToTable4
+import sbt.Scoped.t7ToTable7
+import sbt.Setting
+import sbt.TaskKey
+import sbt.richFile
+import sbt.stringSeqToProcess
+import sbt.stringToProcess
+import sbt.State
+import sbt.Def
 
 object AndroidPreload {
 
@@ -16,15 +43,11 @@ object AndroidPreload {
     val devicePermissionPath = "/system/etc/permissions/%s.xml".format(fullName)
 
     def usesTag =
-      <uses-library
-        android:name={ fullName }
-        android:required="true" />
+      <uses-library android:name={ fullName } android:required="true"/>
 
     def permissionTag =
       <permissions>
-        <library
-        name={ fullName }
-        file={ deviceJarPath } />
+        <library name={ fullName } file={ deviceJarPath }/>
       </permissions>
   }
 
@@ -43,24 +66,27 @@ object AndroidPreload {
 
     override def transform(n: scala.xml.Node): Seq[scala.xml.Node] = n match {
       case Elem(namespace, "application", attribs,
-                scope, children @ _*) if (use) => {
+        scope, children @ _*) if (use) => {
 
         // Create a new uses-library tag
         val tags = libraries map { _.usesTag }
 
+        val child = children ++ tags
         // Update the element
-        Elem(namespace, "application", attribs, scope, children ++ tags: _*)
+        Elem(namespace, "application", attribs, scope, child.isEmpty, child: _*)
       }
 
       case other => other
     }
   }
 
-  /****************
+  /**
+   * **************
    * State checks *
-   ****************/
+   * **************
+   */
 
-  private def checkFileExists (db: File, s: TaskStreams, filename: String)(implicit emulator: Boolean) = {
+  private def checkFileExists(db: File, s: TaskStreams, filename: String)(implicit emulator: Boolean) = {
 
     // Run the `ls` command on the device/emulator
     val flist = androidTarget.run(db, s, "shell", "ls", filename, "2>/dev/null")
@@ -69,14 +95,14 @@ object AndroidPreload {
     val found = flist.contains(filename)
 
     // Inform the user
-    s.log.debug ("File " + filename +
+    s.log.debug("File " + filename +
       (if (found) " found on " else " does not exist on ") + deviceDesignation)
 
     // Return `true` if the file has been found
     found
   }
 
-  private def checkPreloadedLibraryVersion (db: File, s: TaskStreams, library: Library)(implicit emulator: Boolean) = {
+  private def checkPreloadedLibraryVersion(db: File, s: TaskStreams, library: Library)(implicit emulator: Boolean) = {
     import scala.xml._
 
     // Retrieve the contents of the permission file
@@ -85,16 +111,14 @@ object AndroidPreload {
     // Parse the library file
     val preloadedFile = (
       try { Some(XML.loadString(permissions) \\ "permissions" \\ "library" \\ "@file") }
-      catch { case _ => None }
+      catch { case _: Throwable => None } // Convert the XML node to a String
+      ).map(_.text)
 
-    // Convert the XML node to a String
-    ).map(_.text)
+      // Check if this is the right library version
+      .filter(_ == library.deviceJarPath)
 
-    // Check if this is the right library version
-    .filter(_ == library.deviceJarPath)
-
-    // Check if the library is present
-    .filter(checkFileExists(db, s, _))
+      // Check if the library is present
+      .filter(checkFileExists(db, s, _))
 
     // Inform the user
     preloadedFile match {
@@ -107,9 +131,11 @@ object AndroidPreload {
     preloadedFile
   }
 
-  /****************************
+  /**
+   * **************************
    * Scala preloading process *
-   ****************************/
+   * **************************
+   */
 
   private def doPreloadPermissions(
     db: File, s: TaskStreams, library: Library)(implicit emulator: Boolean): Unit = {
@@ -118,16 +144,14 @@ object AndroidPreload {
     s.log.info("Setting permissions for " + library.fullName)
 
     // Generate string from the XML
-    val xmlString = scala.xml.Utility.toXML(
+    val xmlString = scala.xml.Utility.serialize(
       scala.xml.Utility.trim(library.permissionTag),
-      minimizeTags=true
-    ).toString.replace("\"", "\\\"")
+      minimizeTags = MinimizeMode.Always).toString.replace("\"", "\\\"")
 
     // Load the file on the device
     androidTarget.run(db, s,
       "shell", "echo", xmlString,
-      ">", library.devicePermissionPath
-    )
+      ">", library.devicePermissionPath)
   }
 
   private def doPreloadJar(
@@ -146,41 +170,41 @@ object AndroidPreload {
         "--debug",
         "--dex",
         "--output=" + tempJarPath.getAbsolutePath,
-        library.localJar.getAbsolutePath
-      )
-      s.log.info  ("Dexing library %s".format(library.fullName))
-      s.log.debug (dxCmd.!!)
+        library.localJar.getAbsolutePath)
+      s.log.info("Dexing library %s".format(library.fullName))
+      s.log.debug(dxCmd.!!)
     }
 
     // Load the file on the device
     s.log.info("Installing library " + library.fullName)
     androidTarget.run(db, s, "push",
       tempJarPath.getAbsolutePath,
-      library.deviceJarPath
-    )
+      library.deviceJarPath)
   }
 
-  private def doReboot (db: File, s: TaskStreams)(implicit emulator: Boolean) = {
-      s.log.info("Rebooting " + deviceDesignation)
-      if (emulator)
-        androidTarget.run(db, s, "emu", "kill")
-      else
-        androidTarget.run(db, s, "reboot")
-      ()
+  private def doReboot(db: File, s: TaskStreams)(implicit emulator: Boolean) = {
+    s.log.info("Rebooting " + deviceDesignation)
+    if (emulator)
+      androidTarget.run(db, s, "emu", "kill")
+    else
+      androidTarget.run(db, s, "reboot")
+    ()
   }
 
-  private def doRemountReadWrite (db: File, s: TaskStreams)(implicit emulator: Boolean) = {
+  private def doRemountReadWrite(db: File, s: TaskStreams)(implicit emulator: Boolean) = {
     s.log.info("Remounting /system as read-write")
     androidTarget.run(db, s, "root")
     androidTarget.run(db, s, "wait-for-device")
     androidTarget.run(db, s, "remount")
   }
 
-  /***************************
+  /**
+   * *************************
    * Emulator-specific stuff *
-   ***************************/
+   * *************************
+   */
 
-  private def doStartEmuReadWrite (db: File, s: TaskStreams,
+  private def doStartEmuReadWrite(db: File, s: TaskStreams,
     sdkPath: File, toolsPath: File, avdName: String, verbose: Boolean) = {
 
     // Find emulator config path
@@ -193,7 +217,7 @@ object AndroidPreload {
     val configContents = scala.io.Source.fromFile(configFile).mkString
 
     // Regexp to match the system dir
-    val sysre = "image.sysdir.1 *= *(.*)".r 
+    val sysre = "image.sysdir.1 *= *(.*)".r
 
     sysre findFirstIn configContents match {
       case Some(sysre(sys)) =>
@@ -215,7 +239,7 @@ object AndroidPreload {
         val rwemuCmd = (if (!verbose) rwemuCmdF else rwemuCmdV)
           .format(toolsPath, avdName, (avdPath / "system.img").getAbsolutePath)
 
-        s.log.debug (rwemuCmd)
+        s.log.debug(rwemuCmd)
         rwemuCmd.run
 
         // Remount system as read-write
@@ -229,110 +253,116 @@ object AndroidPreload {
     }
   }
 
-  private def doKillEmu (db: File, s: TaskStreams)(implicit emulator: Boolean) = {
-      if (emulator)
-        androidTarget.run(db, s, "emu", "kill")
-      ()
+  private def doKillEmu(db: File, s: TaskStreams)(implicit emulator: Boolean) = {
+    if (emulator)
+      androidTarget.run(db, s, "emu", "kill")
+    ()
   }
 
-  private def filterLibraries
-    (cp: Seq[Attributed[File]], filters: Seq[Attributed[File] => Boolean]) =
-      cp filter (ce => filters exists (f => f(ce))) map (f =>
-        Library(
-          f.data,
-          f.get(moduleID.key).map(_.name) getOrElse f.data.name,
-          f.get(moduleID.key).map(_.revision) getOrElse "unknown"
-        )
-      )
+  private def filterLibraries(cp: Seq[Attributed[File]], filters: Seq[Attributed[File] => Boolean]) =
+    cp filter (ce => filters exists (f => f(ce))) map (f =>
+      Library(
+        f.data,
+        f.get(moduleID.key).map(_.name) getOrElse f.data.name,
+        f.get(moduleID.key).map(_.revision) getOrElse "unknown"))
 
-  /*******************************
+  /**
+   * *****************************
    * Tasks related to preloading *
-   *******************************/
+   * *****************************
+   */
 
   private def preloadDeviceTask =
     (dbPath, dxPath, target, preloadFilters, managedClasspath, unmanagedClasspath, streams) map {
-    (dbPath, dxPath, target, preloadFilters, mcp, umcp, streams) =>
+      (dbPath, dxPath, target, preloadFilters, mcp, umcp, streams) =>
 
-      // We're not using the emulator
-      implicit val emulator = false
+        // We're not using the emulator
+        implicit val emulator = false
 
-      // Retrieve libraries
-      val libraries = filterLibraries(mcp ++ umcp, preloadFilters)
+        // Retrieve libraries
+        val libraries = filterLibraries(mcp ++ umcp, preloadFilters)
 
-      // Wait for the device
-      androidTarget.run(dbPath, streams, "wait-for-device")
+        // Wait for the device
+        androidTarget.run(dbPath, streams, "wait-for-device")
 
-      // Check for existing libraries
-      val librariesToPreload = libraries filterNot { lib =>
-        checkPreloadedLibraryVersion(dbPath, streams, lib).isDefined
-      }
-
-      // Only do this if we have libraries to preload
-      if (!librariesToPreload.isEmpty) {
-
-        // Remount the device in read-write mode
-        doRemountReadWrite (dbPath, streams)
-
-        // Preload the libraries
-        librariesToPreload map { lib =>
-
-          // Push files to the device
-          doPreloadJar         (dbPath, dxPath, streams, target, lib)
-          doPreloadPermissions (dbPath, streams, lib)
+        // Check for existing libraries
+        val librariesToPreload = libraries filterNot { lib =>
+          checkPreloadedLibraryVersion(dbPath, streams, lib).isDefined
         }
 
-        // Reboot
-        doReboot (dbPath, streams)
-      }
+        // Only do this if we have libraries to preload
+        if (!librariesToPreload.isEmpty) {
+
+          // Remount the device in read-write mode
+          doRemountReadWrite(dbPath, streams)
+
+          // Preload the libraries
+          librariesToPreload map { lib =>
+
+            // Push files to the device
+            doPreloadJar(dbPath, dxPath, streams, target, lib)
+            doPreloadPermissions(dbPath, streams, lib)
+          }
+
+          // Reboot
+          doReboot(dbPath, streams)
+        }
     }
 
   private def preloadEmulatorTask(emulatorName: TaskKey[String]) =
     (emulatorName, toolsPath, sdkPath, dbPath, dxPath, target, preloadFilters, managedClasspath, unmanagedClasspath, streams) map {
-    (emulatorName, toolsPath, sdkPath, dbPath, dxPath, target, preloadFilters, mcp, umcp, streams) =>
+      (emulatorName, toolsPath, sdkPath, dbPath, dxPath, target, preloadFilters, mcp, umcp, streams) =>
 
-      // We're using the emulator
-      implicit val emulator = true
+        // We're using the emulator
+        implicit val emulator = true
 
-      // Retrieve libraries
-      val libraries = filterLibraries(mcp ++ umcp, preloadFilters)
+        // Retrieve libraries
+        val libraries = filterLibraries(mcp ++ umcp, preloadFilters)
 
-      // Check for existing libraries
-      val librariesToPreload = libraries filterNot { lib =>
-        checkPreloadedLibraryVersion(dbPath, streams, lib).isDefined
-      }
-
-      // Only do this if we have libraries to preload
-      if (!librariesToPreload.isEmpty) {
-
-        // Kill any running emulator
-        doKillEmu (dbPath, streams)
-
-        // Restart the emulator in system read-write mode
-        doStartEmuReadWrite (dbPath, streams, sdkPath, toolsPath, emulatorName, false)
-
-        // Preload the libraries
-        librariesToPreload map { lib =>
-
-          // Push files to the device
-          doPreloadJar         (dbPath, dxPath, streams, target, lib)
-          doPreloadPermissions (dbPath, streams, lib)
+        // Check for existing libraries
+        val librariesToPreload = libraries filterNot { lib =>
+          checkPreloadedLibraryVersion(dbPath, streams, lib).isDefined
         }
 
-        // Reboot / Kill emulator
-        doKillEmu (dbPath, streams)
-      }
+        // Only do this if we have libraries to preload
+        if (!librariesToPreload.isEmpty) {
+
+          // Kill any running emulator
+          doKillEmu(dbPath, streams)
+
+          // Restart the emulator in system read-write mode
+          doStartEmuReadWrite(dbPath, streams, sdkPath, toolsPath, emulatorName, false)
+
+          // Preload the libraries
+          librariesToPreload map { lib =>
+
+            // Push files to the device
+            doPreloadJar(dbPath, dxPath, streams, target, lib)
+            doPreloadPermissions(dbPath, streams, lib)
+          }
+
+          // Reboot / Kill emulator
+          doKillEmu(dbPath, streams)
+        }
     }
 
   private def commandTask(command: String)(implicit emulator: Boolean) =
     (dbPath, streams) map {
-      (d,s) => androidTarget.run(d, s, command)
-      ()
+      (d, s) =>
+        androidTarget.run(d, s, command)
+        ()
     }
 
-  /*************************
+  /**
+   * ***********************
    * Insert tasks into SBT *
-   *************************/
+   * ***********************
+   */
 
+  private def preloadEmulatorTask = (s: State) => (sdkPath) map {
+    (p) => (AndroidEmulator.installedAvds(p))
+  }
+  
   lazy val settings: Seq[Setting[_]] = (Seq(
     // Automatically take care of AndroidManifest.xml when needed
     manifestRewriteRules <+= (usePreloaded, managedClasspath, unmanagedClasspath, preloadFilters) map
@@ -340,7 +370,6 @@ object AndroidPreload {
 
     // Preload Scala on the device/emulator
     preloadDevice <<= preloadDeviceTask,
-    preloadEmulator <<= InputTask(
-      (sdkPath)(AndroidEmulator.installedAvds(_)))(preloadEmulatorTask)
-  ))
+    preloadEmulator <<= Def.inputTask(preloadEmulatorTask)))
+    //preloadEmulator <<= InputTask((sdkPath)(AndroidEmulator.installedAvds(_)))(preloadEmulatorTask)))
 }

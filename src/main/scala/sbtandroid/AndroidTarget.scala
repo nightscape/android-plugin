@@ -1,8 +1,12 @@
 package sbtandroid
 
-import sbt._
-import Keys._
-import AndroidHelpers._
+import AndroidHelpers.launcherActivity
+import sbt.File
+import sbt.IO
+import sbt.Keys.TaskStreams
+import sbt.ProcessIO
+import sbt.richFile
+import sbt.stringSeqToProcess
 
 /**
  * Android target base trait
@@ -28,8 +32,7 @@ trait AndroidTarget {
       in => (),
       out => output.append(IO.readStream(out)),
       err => output.append(IO.readStream(err)),
-      inheritedInput => false
-    )).exitValue
+      inheritedInput => false)).exitValue
 
     // Return the output and exit code
     (exit, output.toString)
@@ -51,7 +54,7 @@ trait AndroidTarget {
       s.log.error(output)
       sys.error("Error executing ADB")
 
-    // If the command succeeded, log the output to the debug stream
+      // If the command succeeded, log the output to the debug stream
     } else s.log.debug(output)
 
     // Return the output
@@ -81,8 +84,7 @@ trait AndroidTarget {
     run(adbPath, s,
       "shell", "am", "start",
       "-a", "android.intent.action.MAIN",
-      "-n", intentTarget
-    )
+      "-n", intentTarget)
   }
 
   /**
@@ -117,10 +119,10 @@ trait AndroidTarget {
   /**
    * Installs or uninstalls a package on the target
    */
-   def installPackage(adbPath: File, streams: TaskStreams, apkPath: File) =
-     run(adbPath, streams, "install", "-r", apkPath.absolutePath)
-   def uninstallPackage(adbPath: File, streams: TaskStreams, packageName: String) =
-     run(adbPath, streams, "uninstall", packageName)
+  def installPackage(adbPath: File, streams: TaskStreams, apkPath: File) =
+    run(adbPath, streams, "install", "-r", apkPath.absolutePath)
+  def uninstallPackage(adbPath: File, streams: TaskStreams, packageName: String) =
+    run(adbPath, streams, "uninstall", packageName)
 }
 
 /**

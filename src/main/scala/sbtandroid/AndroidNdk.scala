@@ -1,20 +1,61 @@
 package sbtandroid
 
-import sbt._
-
-import Keys._
-import AndroidPlugin._
-
 import java.io.File
+
+import AndroidPlugin.javah
+import AndroidPlugin.javahClean
+import AndroidPlugin.javahName
+import AndroidPlugin.javahOutputDirectory
+import AndroidPlugin.javahOutputEnv
+import AndroidPlugin.javahOutputFile
+import AndroidPlugin.javahPath
+import AndroidPlugin.jniClasses
+import AndroidPlugin.nativeDirectories
+import AndroidPlugin.ndkBuild
+import AndroidPlugin.ndkBuildName
+import AndroidPlugin.ndkBuildPath
+import AndroidPlugin.ndkClean
+import AndroidPlugin.ndkEnvs
+import AndroidPlugin.ndkJniDirectoryName
+import AndroidPlugin.ndkJniSourcePath
+import AndroidPlugin.ndkLibDirectoryName
+import AndroidPlugin.ndkNativeObjectPath
+import AndroidPlugin.ndkNativeOutputPath
+import AndroidPlugin.ndkObjDirectoryName
+import AndroidPlugin.ndkUnmanagedEnv
+import sbt.IO
+import sbt.Keys.TaskStreams
+import sbt.Keys.classDirectory
+import sbt.Keys.clean
+import sbt.Keys.compile
+import sbt.Keys.configuration
+import sbt.Keys.crossTarget
+import sbt.Keys.externalDependencyClasspath
+import sbt.Keys.internalDependencyClasspath
+import sbt.Keys.javaHome
+import sbt.Keys.sourceDirectory
+import sbt.Keys.sourceManaged
+import sbt.Keys.streams
+import sbt.Logger.log2PLog
+import sbt.Process
+import sbt.Scoped.t2ToApp2
+import sbt.Scoped.t3ToApp3
+import sbt.Scoped.t9ToTable9
+import sbt.Setting
+import sbt.richAttributed
+import sbt.richFile
+import sbt.richInitialize
+import sbt.richInitializeTask
+import sbt.stringSeqToProcess
 
 /**
  * Support for the Android NDK.
  *
  * Adding support for compilation of C/C++ sources using the NDK.
  *
- * Adapted from work by Daniel Solano Gómez
+ * Adapted from work by Daniel Solano Gomez
  *
- * @author Daniel Solano Gómez, Martin Kneissl.
+ * @author Daniel Solano Gomez, Martin Kneissl.
  */
 object AndroidNdk {
   /** The default name for the 'ndk-build' tool. */
@@ -35,7 +76,7 @@ object AndroidNdk {
   /**
    * Default NDK settings
    */
-  lazy val globalSettings: Seq[Setting[_]] = (Seq (
+  lazy val globalSettings: Seq[Setting[_]] = (Seq(
 
     // Options for ndk-build
     ndkBuildName := DefaultNdkBuildName,
@@ -64,31 +105,28 @@ object AndroidNdk {
 
     // Path to the javah executable
     javahPath <<= (javaHome, javahName) apply { (home, name) =>
-      home map ( h => (h / "bin" / name).absolutePath ) getOrElse name
+      home map (h => (h / "bin" / name).absolutePath) getOrElse name
     },
 
     // List of classes against which we run javah
-    jniClasses := Seq.empty
-  ))
+    jniClasses := Seq.empty))
 
   /**
    * NDK-related paths
    */
-  lazy val pathSettings: Seq[Setting[_]] = (Seq (
+  lazy val pathSettings: Seq[Setting[_]] = (Seq(
 
     // Path to the JNI sources
-    ndkJniSourcePath <<= (sourceDirectory, ndkJniDirectoryName) (_ / _),
+    ndkJniSourcePath <<= (sourceDirectory, ndkJniDirectoryName)(_ / _),
 
     // Path to the output .so libraries
-    ndkNativeOutputPath <<= (crossTarget, ndkLibDirectoryName, configuration) (_ / _ / _.name),
+    ndkNativeOutputPath <<= (crossTarget, ndkLibDirectoryName, configuration)(_ / _ / _.name),
 
     // Path to the compiled object files
-    ndkNativeObjectPath <<= (crossTarget, ndkObjDirectoryName, configuration) (_ / _ / _.name),
+    ndkNativeObjectPath <<= (crossTarget, ndkObjDirectoryName, configuration)(_ / _ / _.name),
 
     // Path to the javah include directory
-    javahOutputDirectory <<= (sourceManaged, ndkJniDirectoryName) (_ / _)
-
-  ))
+    javahOutputDirectory <<= (sourceManaged, ndkJniDirectoryName)(_ / _)))
 
   private def split(file: File) = {
     val parentsBottomToTop = Iterator.iterate(file)(_.getParentFile).takeWhile(_ != null).map(_.getName).toSeq
@@ -99,7 +137,7 @@ object AndroidNdk {
     if (child.isAbsolute) {
       child
     } else {
-      split(child).foldLeft(parent)(new File(_,_))
+      split(child).foldLeft(parent)(new File(_, _))
     }
   }
 
@@ -124,9 +162,9 @@ object AndroidNdk {
           val outputFile = compose(outputDirectory, file)
           // Neither javah nor RichFile.relativeTo will work unless the directories exist.
           Option(outputFile.getParentFile) foreach (_.mkdirs())
-          if (! (outputFile relativeTo outputDirectory).isDefined) {
+          if (!(outputFile relativeTo outputDirectory).isDefined) {
             log.warn("javah output file [" + outputFile + "] is not within javah output directory [" +
-                outputDirectory + "], continuing anyway")
+              outputDirectory + "], continuing anyway")
           }
 
           Seq("-o", outputFile.absolutePath)
@@ -179,8 +217,7 @@ object AndroidNdk {
         (ndkUnmanagedEnv + "=" + unmanagedArch.absolutePath) ::
         ("NDK_APP_OUT=" + ndkNativeObjectPath.absolutePath) ::
         ("NDK_APP_DST_DIR=" + unmanagedArch.absolutePath) ::
-        targets.toList
-      )
+        targets.toList)
 
       // Run that command
       streams.log.debug("Running ndk-build: " + ndkBuild.mkString(" "))
@@ -190,7 +227,7 @@ object AndroidNdk {
       // Return the output path
       Seq(ndkNativeOutputPath)
 
-    // Return nothing if there is no source
+      // Return nothing if there is no source
     } else {
       streams.log.debug("No JNI sources found, skipping ndk-build")
       Seq.empty
@@ -200,40 +237,39 @@ object AndroidNdk {
   private val ndkBuildTask =
     (ndkBuildPath, ndkUnmanagedEnv, javahOutputEnv, javahOutputDirectory,
       ndkNativeObjectPath, ndkNativeOutputPath, ndkJniSourcePath, ndkEnvs, streams) map (
-      runNdkBuild(_, _, _, _, _, _, _, _, _)
-    )
+        runNdkBuild(_, _, _, _, _, _, _, _, _))
 
   private val ndkCleanTask =
     (ndkBuildPath, ndkUnmanagedEnv, javahOutputEnv, javahOutputDirectory,
       ndkNativeObjectPath, ndkNativeOutputPath, ndkJniSourcePath, ndkEnvs, streams) map {
-      (bp, ue, joe, jod, nob, nou, nj, env, s) =>
-      runNdkBuild(bp, ue, joe, jod, nob, nou, nj, env, s, "clean"); ()
-    }
+        (bp, ue, joe, jod, nob, nou, nj, env, s) =>
+          runNdkBuild(bp, ue, joe, jod, nob, nou, nj, env, s, "clean"); ()
+      }
 
-  lazy val settings: Seq[Setting[_]] = pathSettings ++ Seq (
+  lazy val settings: Seq[Setting[_]] = pathSettings ++ Seq(
 
     // Header generation
     javah <<= (
-        (compile),
+      (compile),
+      javahPath,
+      (classDirectory), (internalDependencyClasspath), (externalDependencyClasspath),
+      jniClasses,
+      javahOutputDirectory, javahOutputFile,
+      streams) map ((
+        _, // we only depend on a side effect (built classes) of compile
         javahPath,
-        (classDirectory), (internalDependencyClasspath), (externalDependencyClasspath),
+        classDirectory, internalDependencyClasspath, externalDependencyClasspath,
         jniClasses,
-        javahOutputDirectory, javahOutputFile,
-        streams) map ((
-            _, // we only depend on a side effect (built classes) of compile
-            javahPath,
-            classDirectory, internalDependencyClasspath, externalDependencyClasspath,
-            jniClasses,
-            javahOutputDirectory,
-            javahOutputFile,
-            streams) =>
+        javahOutputDirectory,
+        javahOutputFile,
+        streams) =>
         javahTask(
           javahPath,
           Seq(classDirectory) ++ internalDependencyClasspath.files ++ externalDependencyClasspath.files,
           jniClasses,
+
           javahOutputDirectory, javahOutputFile,
-          streams)
-    	),
+          streams)),
 
     // NDK build task
     ndkBuild <<= ndkBuildTask,
@@ -245,6 +281,5 @@ object AndroidNdk {
     // Clean tasks
     javahClean <<= (javahOutputDirectory) map IO.delete,
     ndkClean <<= ndkCleanTask,
-    clean <<= clean.dependsOn(ndkClean, javahClean)
-  )
+    clean <<= clean.dependsOn(ndkClean, javahClean))
 }

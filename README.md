@@ -6,6 +6,9 @@ aims to make it as simple as possible to get started with Scala on Android.
 Together with [giter8][] you can create and build a simple Android Scala project in a
 matter of minutes.
 
+Utilize the giter8 template [jlaws/android-plugin](https://github.com/jlaws/android-app.g8) 
+to setup a project shell with SBT 0.13, Scala 2.10.3, and sbt eclipse
+
 ## Getting started
 
 See the [Getting started][] guide on the wiki for more documentation. In case
@@ -17,15 +20,9 @@ you're not not familiar with sbt make sure to check out its excellent
 If you need make modifications to the plugin itself, you can compile
 and install it locally (you need at least sbt 0.11.x to build it):
 
-    $ git clone git://github.com/jberkel/android-plugin.git
+    $ git clone git://github.com/jlaws/android-plugin.git
     $ cd android-plugin
     $ sbt publish-local
-
-## Migrating from 0.7.x
-
-For those who are familiar with the 0.7.x plugin, there is a [migration guide][]
-for a quick reference. The 0.7.x version is no longer maintained - but it is
-still available in the [0.7.x][] branch.
 
 ## Mailing list
 
@@ -50,11 +47,9 @@ list.
 [sbt]: https://github.com/harrah/xsbt/wiki
 [scala-on-android]: http://groups.google.com/group/scala-on-android
 [simple-build-tool]: http://groups.google.com/group/simple-build-tool
-[0.7.x]: https://github.com/jberkel/android-plugin/tree/0.7.x
-[migration guide]: https://github.com/jberkel/android-plugin/wiki/migration_guide
-[contributors]: https://github.com/jberkel/android-plugin/wiki/Contributors
+[contributors]: https://github.com/jlaws/android-plugin/wiki/Contributors
 [homebrew]: https://github.com/mxcl/homebrew
-[projects using sbt-android-plugin]: https://github.com/jberkel/android-plugin/wiki/Projects-using-sbt-android-plugin
-[Getting started]: https://github.com/jberkel/android-plugin/wiki/getting-started
+[projects using sbt-android-plugin]: https://github.com/jlaws/android-plugin/wiki/Projects-using-sbt-android-plugin
+[Getting started]: https://github.com/jlaws/android-plugin/wiki/getting-started
 [giter8]: https://github.com/n8han/giter8
 [sbt-getting-started]: http://scala-sbt.org/release/docs/Getting-Started/Welcome

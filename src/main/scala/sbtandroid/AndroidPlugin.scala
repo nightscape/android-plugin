@@ -1,18 +1,28 @@
 package sbtandroid
 
-import sbt._
-import Keys._
-import Defaults._
-
-import AndroidHelpers.isWindows
-import complete.DefaultParsers._
 import scala.xml.transform.RewriteRule
+
+import sbt.Artifact
+import sbt.Attributed
+import sbt.Configuration
+import sbt.File
+import sbt.InputKey
+import sbt.Keys.moduleID
+import sbt.ModuleID
+import sbt.Plugin
+import sbt.Setting
+import sbt.SettingKey
+import sbt.TaskKey
+import sbt.config
+import sbt.richFile
 
 object AndroidPlugin extends Plugin {
 
-  /***************************************
+  /**
+   * *************************************
    * Default configurations and projects *
-   ***************************************/
+   * *************************************
+   */
 
   // Standard configurations
   val Preload = config("preload")
@@ -38,13 +48,15 @@ object AndroidPlugin extends Plugin {
   override lazy val settings: Seq[Setting[_]] =
     AndroidPath.settings ++ AndroidEmulator.settings
 
-  /******************
+  /**
+   * ****************
    * Helper methods *
-   ******************/
+   * ****************
+   */
 
   // ApkLib and AAR artifact definitions
-  def apklib(module: ModuleID) = module artifacts(Artifact(module.name, "apklib", "apklib"))
-  def aarlib(module: ModuleID) = module artifacts(Artifact(module.name, "aar", "aar"))
+  def apklib(module: ModuleID) = module artifacts (Artifact(module.name, "apklib", "apklib"))
+  def aarlib(module: ModuleID) = module artifacts (Artifact(module.name, "aar", "aar"))
 
   // Common module filters
   def filterFilename(filename: String) = (f: Attributed[File]) => f.data.name contains filename
@@ -58,9 +70,11 @@ object AndroidPlugin extends Plugin {
     case None => false
   }
 
-  /**********************
+  /**
+   * ********************
    * Public plugin keys *
-   **********************/
+   * ********************
+   */
 
   /** Android target **/
   val adbTarget = SettingKey[AndroidTarget]("adb-target", "Current Android target (device or emulator) connected to ADB")
@@ -118,9 +132,9 @@ object AndroidPlugin extends Plugin {
   val cleanApk = TaskKey[Unit]("clean-apk", "Remove apk package")
 
   /** Install Scala on device/emulator **/
-  val preloadFilters     = SettingKey[Seq[Attributed[File] => Boolean]]("preload-filters", "Filters the libraries that are to be preloaded")
-  val preloadDevice      = TaskKey[Unit]("preload-device", "Setup device for development by uploading predexed libraries")
-  val preloadEmulator    = InputKey[Unit]("preload-emulator", "Setup emulator for development by uploading predexed libraries")
+  val preloadFilters = SettingKey[Seq[Attributed[File] => Boolean]]("preload-filters", "Filters the libraries that are to be preloaded")
+  val preloadDevice = TaskKey[Unit]("preload-device", "Setup device for development by uploading predexed libraries")
+  val preloadEmulator = InputKey[Unit]("preload-emulator", "Setup emulator for development by uploading predexed libraries")
 
   /** Installable Tasks */
   val install = TaskKey[Unit]("install")
@@ -200,7 +214,7 @@ object AndroidPlugin extends Plugin {
     """Typed resource file to be generated, also includes
        interfaces to access these resources.""")
   val layoutResources = TaskKey[Seq[File]]("layout-resources",
-      """All files that are in res/layout. They will
+    """All files that are in res/layout. They will
 		 be accessable through TR.layouts._""")
 
   /** Market Publish Settings */
@@ -211,9 +225,11 @@ object AndroidPlugin extends Plugin {
 
   val copyNativeLibraries = TaskKey[Unit]("copy-native-libraries", "Copy native libraries added to libraryDependencies")
 
-  /*********************
+  /**
+   * *******************
    * Source generators *
-   *********************/
+   * *******************
+   */
 
   val aaptGenerate = TaskKey[Seq[File]]("aapt-generate", "Generate R.java")
   val aidlGenerate = TaskKey[Seq[File]]("aidl-generate",
@@ -228,18 +244,22 @@ object AndroidPlugin extends Plugin {
     """Generates a customized AndroidManifest.xml with
        current build number and debug settings.""")
 
-  /**********************
+  /**
+   * ********************
    * Manifest generator *
-   **********************/
+   * ********************
+   */
 
   val manifestTemplateName = SettingKey[String]("manifest-template-name")
   val manifestTemplatePath = SettingKey[File]("manifest-template-path")
   val manifestRewriteRules = TaskKey[Seq[RewriteRule]]("manifest-rewrite-rules",
     "Rules for transforming the contents of AndroidManifest.xml based on the project state and settings.")
 
-  /*******************
+  /**
+   * *****************
    * Debugging tasks *
-   *******************/
+   * *****************
+   */
 
   val stopBridge = TaskKey[Unit]("stop-bridge",
     "Terminates the ADB debugging bridge")
@@ -259,18 +279,22 @@ object AndroidPlugin extends Plugin {
   val threadsDevice = InputKey[Unit]("threads-device",
     "Show thread dump from the device")
 
-  /***********************
+  /**
+   * *********************
    * Store release tasks *
-   ***********************/
+   * *********************
+   */
 
   val release = TaskKey[File]("release", "Prepare a release APK for Store publication.")
   val zipAlign = TaskKey[File]("zip-align", "Run zipalign on signed jar.")
   val signRelease = TaskKey[File]("sign-release", "Sign with key alias using key-alias and keystore path.")
   val cleanAligned = TaskKey[Unit]("clean-aligned", "Remove zipaligned jar")
 
-  /******************
+  /**
+   * ****************
    * Emulator tasks *
-   ******************/
+   * ****************
+   */
 
   val emulatorStart = InputKey[Unit]("emulator-start",
     "Launches a user specified avd")
@@ -281,35 +305,41 @@ object AndroidPlugin extends Plugin {
   val killAdb = TaskKey[Unit]("kill-server",
     "Kill the adb server if it is running.")
 
-  /**************
+  /**
+   * ************
    * Test tasks *
-   **************/
+   * ************
+   */
 
-  val testRunner       = TaskKey[String]("test-runner", "get the current test runner")
-  val testEmulator     = TaskKey[Unit]("test-emulator", "runs tests in emulator")
-  val testDevice       = TaskKey[Unit]("test-device",   "runs tests on device")
+  val testRunner = TaskKey[String]("test-runner", "get the current test runner")
+  val testEmulator = TaskKey[Unit]("test-emulator", "runs tests in emulator")
+  val testDevice = TaskKey[Unit]("test-device", "runs tests on device")
   val testOnlyEmulator = InputKey[Unit]("test-only-emulator", "run a single test on emulator")
-  val testOnlyDevice   = InputKey[Unit]("test-only-device",   "run a single test on device")
+  val testOnlyDevice = InputKey[Unit]("test-only-device", "run a single test on device")
 
-  /********************
+  /**
+   * ******************
    * Password managed *
-   ********************/
+   * ******************
+   */
 
   val cachePasswords = SettingKey[Boolean]("cache-passwords", "Cache passwords")
   val clearPasswords = TaskKey[Unit]("clear-passwords", "Clear cached passwords")
 
-  /********************
+  /**
+   * ******************
    * Android NDK keys *
-   ********************/
+   * ******************
+   */
 
   val ndkBuildName = SettingKey[String]("ndk-build-name", "Name for the 'ndk-build' tool")
   val ndkBuildPath = SettingKey[Option[File]]("ndk-build-path", "Path to the 'ndk-build' tool")
 
-  val ndkLibDirectoryName =  SettingKey[String]("ndk-lib-directory-name", "Directory name for compiled native libraries.")
+  val ndkLibDirectoryName = SettingKey[String]("ndk-lib-directory-name", "Directory name for compiled native libraries.")
   val ndkJniDirectoryName = SettingKey[String]("ndk-jni-directory-name", "Directory name for native sources.")
-  val ndkObjDirectoryName =  SettingKey[String]("ndk-obj-directory-name", "Directory name for compiled native objects.")
+  val ndkObjDirectoryName = SettingKey[String]("ndk-obj-directory-name", "Directory name for compiled native objects.")
   val ndkUnmanagedEnv = SettingKey[String]("ndk-unmanaged-env",
-      "Name of the make environment variable to bind to the unmanaged-base directory")
+    "Name of the make environment variable to bind to the unmanaged-base directory")
   val ndkEnvs = SettingKey[Seq[String]]("ndk-envs", "List of environment variables to check for the NDK.")
 
   val ndkJniSourcePath = SettingKey[File]("jni-source-path", "Path to native sources. (with Android.mk)")
@@ -319,9 +349,11 @@ object AndroidPlugin extends Plugin {
   val ndkBuild = TaskKey[Seq[File]]("ndk-build", "Compile native C/C++ sources.")
   val ndkClean = TaskKey[Unit]("ndk-clean", "Clean resources built from native C/C++ sources.")
 
-  /**************
+  /**
+   * ************
    * Javah keys *
-   **************/
+   * ************
+   */
 
   val javahName = SettingKey[String]("javah-name", "The name of the javah command for generating JNI headers")
   val javahPath = SettingKey[String]("javah-path", "The path to the javah executable")
@@ -329,18 +361,20 @@ object AndroidPlugin extends Plugin {
   val javahClean = TaskKey[Unit]("javah-clean", "Clean C headers built from Java classes with native methods")
 
   val javahOutputDirectory = SettingKey[File]("javah-output-directory",
-      "The directory where JNI headers are written to.")
+    "The directory where JNI headers are written to.")
   val javahOutputFile = SettingKey[Option[File]]("javah-output-file",
-      "filename for the generated C header, relative to javah-output-directory")
+    "filename for the generated C header, relative to javah-output-directory")
   val javahOutputEnv = SettingKey[String]("javah-output-env",
-      "Name of the make environment variable to bind to the javah-output-directory")
+    "Name of the make environment variable to bind to the javah-output-directory")
 
   val jniClasses = SettingKey[Seq[String]]("jni-classes",
-      "Fully qualified names of classes with native methods for which JNI headers are to be generated.")
+    "Fully qualified names of classes with native methods for which JNI headers are to be generated.")
 
-  /************************
+  /**
+   * **********************
    * IntelliJ integration *
-   ************************/
+   * **********************
+   */
 
-   val ideaConfiguration = SettingKey[Configuration]("idea-configuration", "Configuration used by sbtidea to generate the IntelliJ project")
+  val ideaConfiguration = SettingKey[Configuration]("idea-configuration", "Configuration used by sbtidea to generate the IntelliJ project")
 }

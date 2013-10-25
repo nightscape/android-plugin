@@ -1,18 +1,42 @@
 package sbtandroid
 
-import sbt.{stringToProcess => _, _}
-import classpath._
-import scala.xml._
+import java.util.regex.PatternSyntaxException
 
-import Keys._
-import AndroidPlugin._
+import scala.Array.canBuildFrom
+import scala.Option.option2Iterable
+import scala.xml.Elem
+import scala.xml.XML
+
+import AndroidPlugin.generateTypedLayouts
+import AndroidPlugin.layoutResources
+import AndroidPlugin.libraryJarPath
+import AndroidPlugin.mainResPath
+import AndroidPlugin.managedScalaPath
+import AndroidPlugin.manifestPackage
+import AndroidPlugin.typedLayouts
+import AndroidPlugin.useTypedLayouts
+import sbt.File
+import sbt.IO
+import sbt.Keys.sourceGenerators
+import sbt.Keys.streams
+import sbt.Keys.watchSources
+import sbt.Scoped.t2ToTable2
+import sbt.Scoped.t6ToTable6
+import sbt.Setting
+import sbt.classpath.ClasspathUtilities
+import sbt.filesToFinder
+import sbt.globFilter
+import sbt.richFile
+import sbt.richInitializeTask
+import sbt.singleFileFinder
+import sbt.std
 
 // FIXME more appropriate name
 object TypedLayouts {
   /** Views with android:id. */
   private case class NamedView(id: String,
-                               className: String,
-                               subViews: Iterable[NamedView]) {
+    className: String,
+    subViews: Iterable[NamedView]) {
     def flatten: Iterable[NamedView] = {
       Iterable(this) ++ subViews.flatMap(_.flatten)
     }
@@ -33,8 +57,8 @@ object TypedLayouts {
     }
 
     def attributeText(element: Elem,
-                      namespace: String,
-                      localName: String) = {
+      namespace: String,
+      localName: String) = {
       element
         .attribute(namespace, localName)
         .map(_.map(_.text).mkString)
@@ -81,8 +105,7 @@ object TypedLayouts {
   }
 
   /** Merges layout definitions having the same name. */
-  private def mergeLayouts(streams: std.TaskStreams[Project.ScopedKey[_]])
-                          (layouts: Iterable[(String, Iterable[NamedView])]) = {
+  private def mergeLayouts(streams: std.TaskStreams[sbt.Def.ScopedKey[_]])(layouts: Iterable[(String, Iterable[NamedView])]) = {
     def mergeViews(views: Iterable[NamedView]): Iterable[NamedView] = {
       views.groupBy(_.id).values.map(doMergeViews _)
     }
@@ -94,7 +117,7 @@ object TypedLayouts {
       for (view <- views) {
         if (view.className != className) {
           streams.log.warn("Resource id '%s' mapped to %s and %s"
-                             .format(id, className, view.className))
+            .format(id, className, view.className))
         }
       }
 
@@ -112,11 +135,11 @@ object TypedLayouts {
   // from Scala Language Specification Version 2.9 Section 1.1
   private val reserved =
     Set("abstract", "case", "do", "else", "finally", "for", "import",
-        "lazy", "object", "override", "return", "sealed", "trait", "try",
-        "var", "while", "catch", "class", "extends", "false", "forSome",
-        "if", "match", "new", "package", "private", "super", "this",
-        "true", "type", "with", "yield", "def", "final", "implicit",
-        "null", "protected", "throw", "val")
+      "lazy", "object", "override", "return", "sealed", "trait", "try",
+      "var", "while", "catch", "class", "extends", "false", "forSome",
+      "if", "match", "new", "package", "private", "super", "this",
+      "true", "type", "with", "yield", "def", "final", "implicit",
+      "null", "protected", "throw", "val")
 
   /** Quotes a qualified/unqualified identifier if it is reserved */
   private def quoteReserved(id: String) = {
@@ -125,8 +148,7 @@ object TypedLayouts {
         "`" + id + "`"
       } else {
         id
-      }
-    ).mkString(".")
+      }).mkString(".")
   }
 
   private def toCamelCase(name: String) = {
@@ -138,8 +160,7 @@ object TypedLayouts {
   }
 
   // FIXME Name clashes occur if duplicated IDs exist.
-  private def formatLayout(manifestPackage: String)
-                          (layout: (String, Iterable[NamedView])) = {
+  private def formatLayout(manifestPackage: String)(layout: (String, Iterable[NamedView])) = {
     val (layoutName, views) = layout
 
     // Since Activity, Dialog, and View does not have a common interface,
@@ -183,23 +204,22 @@ object TypedLayouts {
        |  def apply(view: _root_.android.view.View) = new ViewWrapper(view)
        |}
        |""".stripMargin.format(toUpperCamelCase(layoutName),
-                               views
-                                 .flatMap(_.flatten)
-                                 .map(formatView(manifestPackage)(layoutName, _))
-                                 .mkString("\n")
-                                 .lines
-                                 .mkString("\n    "),
-                               quoteReserved(layoutName),
-                               "_root_." + manifestPackage)
+      views
+        .flatMap(_.flatten)
+        .map(formatView(manifestPackage)(layoutName, _))
+        .mkString("\n")
+        .lines
+        .mkString("\n    "),
+      quoteReserved(layoutName),
+      "_root_." + manifestPackage)
   }
 
-  private def formatView(manifestPackage: String)
-                        (layoutName: String, view: NamedView) = {
+  private def formatView(manifestPackage: String)(layoutName: String, view: NamedView) = {
     if (view.subViews.isEmpty) {
       "lazy val %1$s = `this`.findViewById(%3$s.R.id.%1$s).asInstanceOf[%2$s]"
         .format(quoteReserved(view.id),
-                quoteReserved(view.className),
-                "_root_." + manifestPackage)
+          quoteReserved(view.className),
+          "_root_." + manifestPackage)
     } else {
       """|object %1$s extends %4$s.Layout.ViewWrapper[%2$s](`this`.findViewById(%4$s.R.id.%1$s).asInstanceOf[%2$s]) {
          |
@@ -207,16 +227,15 @@ object TypedLayouts {
          |
          |}
          |""".stripMargin.format(quoteReserved(view.id),
-                                 quoteReserved(view.className),
-                                 view
-                                   .subViews
-                                   .flatMap(_.flatten)
-                                   .map(formatSubView(layoutName, _))
-                                   .mkString("\n")
-                                   .lines
-                                   .mkString("\n    "),
-                                 "_root_." + manifestPackage
-      )
+        quoteReserved(view.className),
+        view
+          .subViews
+          .flatMap(_.flatten)
+          .map(formatSubView(layoutName, _))
+          .mkString("\n")
+          .lines
+          .mkString("\n    "),
+        "_root_." + manifestPackage)
     }
   }
 
@@ -226,23 +245,21 @@ object TypedLayouts {
 
   private def generateTypedLayoutsTask =
     (useTypedLayouts, typedLayouts, layoutResources, libraryJarPath, manifestPackage, streams) map {
-    (useTypedLayouts, typedLayouts, layoutResources, libraryJarPath, manifestPackage, s) =>
-      if (useTypedLayouts) {
-        // e.g. main_activity.xml -> main_activity
-        def baseName(path: File) = {
-          val name = path.getName
+      (useTypedLayouts, typedLayouts, layoutResources, libraryJarPath, manifestPackage, s) =>
+        if (useTypedLayouts) {
+          // e.g. main_activity.xml -> main_activity
+          def baseName(path: File) = {
+            val name = path.getName
 
-          name.substring(0, name.lastIndexOf("."))
-        }
+            name.substring(0, name.lastIndexOf("."))
+          }
 
-        val layouts = mergeLayouts(s)(
-          layoutResources.get.map(path =>
-            (baseName(path), buildTree(libraryJarPath)(XML.loadFile(path)))
-          )
-        )
+          val layouts = mergeLayouts(s)(
+            layoutResources.get.map(path =>
+              (baseName(path), buildTree(libraryJarPath)(XML.loadFile(path)))))
 
-        IO.write(typedLayouts,
-                 """|package %s
+          IO.write(typedLayouts,
+            """|package %s
                     |
                     |object Layout {
                     |  case class ViewWrapper[A <: _root_.android.view.View](view: A)
@@ -254,24 +271,22 @@ object TypedLayouts {
                     |
                     |}
                     |"""
-                   .stripMargin.format(manifestPackage,
-                                       layouts
-                                         .map(formatLayout(manifestPackage) _)
-                                         .mkString("\n")
-                                         .lines
-                                         .mkString("\n    ")
-                 )
-        )
-        s.log.info("Wrote %s".format(typedLayouts))
-        Seq(typedLayouts)
-      } else {
-        Seq.empty
-      }
+              .stripMargin.format(manifestPackage,
+                layouts
+                  .map(formatLayout(manifestPackage) _)
+                  .mkString("\n")
+                  .lines
+                  .mkString("\n    ")))
+          s.log.info("Wrote %s".format(typedLayouts))
+          Seq(typedLayouts)
+        } else {
+          Seq.empty
+        }
     }
 
-  lazy val settings: Seq[Setting[_]] = (Seq (
+  lazy val settings: Seq[Setting[_]] = (Seq(
     typedLayouts <<= (manifestPackage, managedScalaPath) map {
-      _.split('.').foldLeft(_) ((p, s) => p / s) / "typed_layouts.scala"
+      _.split('.').foldLeft(_)((p, s) => p / s) / "typed_layouts.scala"
     },
     layoutResources <<= (mainResPath) map { x => (x * "layout*" * "*.xml" get) },
 
@@ -279,6 +294,5 @@ object TypedLayouts {
 
     sourceGenerators <+= generateTypedLayouts,
 
-    watchSources <++= (layoutResources) map (ls => ls)
-  ))
+    watchSources <++= (layoutResources) map (ls => ls)))
 }

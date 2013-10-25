@@ -1,17 +1,23 @@
 package sbtandroid
 
-import sbt._
+import scala.Array.canBuildFrom
 
-import Keys._
-import AndroidPlugin._
+import AndroidPlugin.clearPasswords
+import sbt.File
+import sbt.IO
+import sbt.Keys.streams
+import sbt.ProcessIO
+import sbt.Setting
+import sbt.SimpleReader
+import sbt.richInitializeTask
+import sbt.stringSeqToProcess
 
 object PasswordManager extends PWManager {
-  lazy val settings: Seq[Setting[_]] = (Seq (
+  lazy val settings: Seq[Setting[_]] = (Seq(
     clearPasswords <<= (streams) map { (s) =>
       clear()
       s.log.success("cleared passwords")
-    }
-  ))
+    }))
 
   def fetch(service: String, account: String): Option[String] = impl.fetch(service, account)
   def store(service: String, account: String, pw: String): Option[String] = impl.store(service, account, pw)
@@ -21,22 +27,21 @@ object PasswordManager extends PWManager {
   lazy val impl: PWManager = {
     System.getProperty("os.name") match {
       case "Mac OS X" => OSXPasswordManager
-      case unknown    => FilePasswordManager
+      case unknown => FilePasswordManager
     }
   }
 }
 
 trait PWManager {
   def readPassword(service: String, account: String) =
-      SimpleReader.readLine("\nEnter password for "+service+"/"+account+": ").get
+    SimpleReader.readLine("\nEnter password for " + service + "/" + account + ": ").get
 
-  def get(service: String, account: String, cache: Boolean):Option[String] = {
-      fetch(service, account).orElse {
-        val pw = readPassword(service, account)
-        if (cache) store(service, account, pw) else Some(pw)
-      }
+  def get(service: String, account: String, cache: Boolean): Option[String] = {
+    fetch(service, account).orElse {
+      val pw = readPassword(service, account)
+      if (cache) store(service, account, pw) else Some(pw)
     }
-
+  }
 
   def fetch(service: String, account: String): Option[String]
   def store(service: String, account: String, pw: String): Option[String]
@@ -54,14 +59,14 @@ object OSXPasswordManager extends PWManager {
       "find-generic-password",
       "-a", account,
       "-s", service, "-g").run(new ProcessIO(input => (),
-      output => (),
-      error => buffer.append(IO.readStream(error)),
-      inheritedInput => false)
-      ).exitValue() match {
+        output => (),
+        error => buffer.append(IO.readStream(error)),
+        inheritedInput => false)).exitValue() match {
         case 0 =>
-          (for (line <- buffer.toString.split("\r\n");
-                if (line.startsWith("password: ")))
-          yield line.substring(line.indexOf('"') + 1, line.lastIndexOf('"'))).headOption
+          (for (
+            line <- buffer.toString.split("\r\n");
+            if (line.startsWith("password: "))
+          ) yield line.substring(line.indexOf('"') + 1, line.lastIndexOf('"'))).headOption
         case 44 =>
           // password not stored yet
           None
@@ -76,9 +81,9 @@ object OSXPasswordManager extends PWManager {
       "-s", service,
       "-l", Label,
       "-w", pw).run(false).exitValue() match {
-      case 0 => Some(pw)
-      case _ => None
-    }
+        case 0 => Some(pw)
+        case _ => None
+      }
   }
 
   def delete(service: String, account: String): Boolean = {
@@ -91,9 +96,8 @@ object OSXPasswordManager extends PWManager {
   def clear() {
     if (Seq("security",
       "delete-generic-password",
-      "-l", Label
-      ).run(new ProcessIO(input => (), output => (), error => (), inheritedInput => false))
-       .exitValue() == 0) clear()
+      "-l", Label).run(new ProcessIO(input => (), output => (), error => (), inheritedInput => false))
+      .exitValue() == 0) clear()
   }
 }
 
@@ -106,18 +110,19 @@ object EmptyPasswordManager extends PWManager {
 
 object FilePasswordManager extends PWManager {
   val pwDir = new File(new File(
-      System.getProperty("user.home"), ".sbt"), "sbt-android-plugin-passwords")
+    System.getProperty("user.home"), ".sbt"), "sbt-android-plugin-passwords")
 
   def file(service: String) = {
-      if (!pwDir.exists()) pwDir.mkdirs()
-      new File(pwDir, service)
+    if (!pwDir.exists()) pwDir.mkdirs()
+    new File(pwDir, service)
   }
 
   def fetch(service: String, account: String) = {
     val f = file(service)
-    if (f.exists()) (for (line <- IO.readLines(f);
-        if line.startsWith(account+"="))
-        yield line.substring(line.indexOf('=')+1)).headOption
+    if (f.exists()) (for (
+      line <- IO.readLines(f);
+      if line.startsWith(account + "=")
+    ) yield line.substring(line.indexOf('=') + 1)).headOption
     else None
   }
 
@@ -128,7 +133,7 @@ object FilePasswordManager extends PWManager {
     def appendPw() = buffer.append(account).append("=").append(pw).append("\n")
     if (f.exists()) {
       for (line <- IO.readLines(f))
-        if (line.startsWith(account+"=")) {
+        if (line.startsWith(account + "=")) {
           appendPw()
           replaced = true
         } else buffer.append(line).append("\n")
@@ -151,7 +156,7 @@ object FilePasswordManager extends PWManager {
     var found = false
     if (f.exists()) {
       for (line <- IO.readLines(f)) {
-        if (!line.startsWith(account+"=")) {
+        if (!line.startsWith(account + "=")) {
           buffer.append(line).append("\n")
         } else found = true
       }

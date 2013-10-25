@@ -8,3 +8,7 @@ project/plugins/project/
 temp
 .idea
 .idea_modules
+.classpath
+.project
+.settings
+.cache
