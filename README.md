@@ -6,7 +6,7 @@ aims to make it as simple as possible to get started with Scala on Android.
 Together with [giter8][] you can create and build a simple Android Scala project in a
 matter of minutes.
 
-Utilize the giter8 template [jlaws/android-plugin](https://github.com/jlaws/android-app.g8) 
+Utilize the giter8 template [jlaws/android-app](https://github.com/jlaws/android-app.g8) 
 to setup a project shell with SBT 0.13, Scala 2.10.3, and sbt eclipse
 
 ## Getting started
